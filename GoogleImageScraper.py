@@ -19,8 +19,10 @@ from urllib.parse import urlparse
 import os
 import requests
 import io
+import imghdr
 from PIL import Image
 import re
+from random import random, randint
 
 #custom patch libraries
 import patch
@@ -52,7 +54,7 @@ class GoogleImageScraper():
                 driver.set_window_size(1400,1050)
                 driver.get("https://www.google.com")
                 try:
-                    WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.ID, "W0wltc"))).click()
+                    WebDriverWait(driver, 8).until(EC.element_to_be_clickable((By.ID, "W0wltc"))).click()
                 except Exception as e:
                     continue
             except Exception as e:
@@ -90,7 +92,7 @@ class GoogleImageScraper():
         indx_1 = 0
         indx_2 = 0
         search_string = '//*[@id="islrg"]/div[1]/div[%s]/a[1]/div[1]/img'
-        time.sleep(3)
+        time.sleep(3 + random())
         while self.number_of_images > count and missed_count < self.max_missed:
             if indx_2 > 0:
                 try:
@@ -126,7 +128,7 @@ class GoogleImageScraper():
                     
             try:
                 #select image from the popup
-                time.sleep(1)
+                time.sleep(1 + random())
                 class_names = ["n3VNCb","iPVvYb","r48jcc","pT0Scc"]
                 images = [self.driver.find_elements(By.CLASS_NAME, class_name) for class_name in class_names if len(self.driver.find_elements(By.CLASS_NAME, class_name)) != 0 ][0]
                 for image in images:
@@ -148,9 +150,9 @@ class GoogleImageScraper():
                 element = self.driver.find_element(By.CLASS_NAME,"mye4qd")
                 element.click()
                 print("[INFO] Loading next page")
-                time.sleep(3)
+                time.sleep(3 + random())
             except Exception:
-                time.sleep(1)
+                time.sleep(1 + random())
 
 
 
@@ -159,7 +161,6 @@ class GoogleImageScraper():
         return image_urls
 
     def save_images(self,image_urls, keep_filenames):
-        print(keep_filenames)
         #save images into file directory
         """
             This function takes in an array of image urls and save it into the given image path/directory.
@@ -172,38 +173,46 @@ class GoogleImageScraper():
         print("[INFO] Saving image, please wait...")
         for indx,image_url in enumerate(image_urls):
             try:
-                print("[INFO] Image url:%s"%(image_url))
-                search_string = ''.join(e for e in self.search_key if e.isalnum())
-                image = requests.get(image_url,timeout=5)
-                if image.status_code == 200:
-                    with Image.open(io.BytesIO(image.content)) as image_from_web:
-                        try:
-                            if (keep_filenames):
-                                #extact filename without extension from URL
-                                o = urlparse(image_url)
-                                image_url = o.scheme + "://" + o.netloc + o.path
-                                name = os.path.splitext(os.path.basename(image_url))[0]
-                                #join filename and extension
-                                filename = "%s.%s"%(name,image_from_web.format.lower())
-                            else:
-                                filename = "%s%s.%s"%(search_string,str(indx),image_from_web.format.lower())
+                self.save_image_from_url(image_url, self.image_path)
 
-                            image_path = os.path.join(self.image_path, filename)
-                            print(
-                                f"[INFO] {self.search_key} \t {indx} \t Image saved at: {image_path}")
-                            image_from_web.save(image_path)
-                        except OSError:
-                            rgb_im = image_from_web.convert('RGB')
-                            rgb_im.save(image_path)
-                        image_resolution = image_from_web.size
-                        if image_resolution != None:
-                            if image_resolution[0]<self.min_resolution[0] or image_resolution[1]<self.min_resolution[1] or image_resolution[0]>self.max_resolution[0] or image_resolution[1]>self.max_resolution[1]:
-                                image_from_web.close()
-                                os.remove(image_path)
-
-                        image_from_web.close()
             except Exception as e:
                 print("[ERROR] Download failed: ",e)
                 pass
         print("--------------------------------------------------")
         print("[INFO] Downloads completed. Please note that some photos were not downloaded as they were not in the correct format (e.g. jpg, jpeg, png)")
+    
+    # Same downloading method as the API scraper
+    def save_image_from_url(self, url, directory):
+        try:
+            # Avoid 403 Forbidden courtesy of:
+            # https://stackoverflow.com/a/38489588
+            headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.102 Safari/537.36'}
+            
+            # Get the image
+            response = requests.get(url, headers=headers)
+
+            # Check if the request succeeded
+            if response.status_code == 200:
+                
+                # Generate domain + a random number for the filename
+                filename = f"{urlparse(url).netloc}.{randint(1000, 9999)}"
+                
+                # Download any image types courtesy of:
+                # https://stackoverflow.com/a/72867586
+                extension = imghdr.what(file=None, h=response.content)
+                save_path = f"{directory}/{filename}.{extension}"
+                with open(save_path, 'wb') as f:
+                    f.write(response.content)
+                
+                print(f"Image is saved as {filename}.{extension}. Original URL: {url}")
+                return True
+                
+            print(f"Failed request with HTTP status code: {response.status_code}. Original URL: {url}")
+
+        except requests.exceptions.RequestException as err:
+            print(f"Request error: {err}. Original URL: {url}")
+        except IOError as err:
+            print(f"IOError: {err}. Original URL: {url}")
+        except Exception as err:
+            print(f"Unexpected error: {err}. Original URL: {url}")
+        return False
